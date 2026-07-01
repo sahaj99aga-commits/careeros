@@ -487,6 +487,9 @@ input[type="date"] { color-scheme: dark; }
   --ig: #e1306c; --ig-soft: rgba(225, 48, 108, .14);
   --fb: #3b82f6; --fb-soft: rgba(59, 130, 246, .14);
   --gg: #22c55e; --gg-soft: rgba(34, 197, 94, .14);
+  --ease: cubic-bezier(.22, 1, .36, 1);      /* soft settle */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);   /* expressive out */
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1); /* gentle overshoot */
 }
 
 /* ----------  Topbar extras  ---------- */
@@ -607,6 +610,107 @@ input[type="date"] { color-scheme: dark; }
 @keyframes cp-spin { to { transform: rotate(360deg); } }
 .btn.is-busy { opacity: .75; pointer-events: none; }
 .btn.is-busy .icon { animation: cp-spin 0.9s linear infinite; }
+
+/* ============================================================================
+   Motion polish — intentional, world-class feel
+   Entrance animations fire ONLY on navigation (via .is-entering on <main>),
+   so nothing replays on every click. Micro-interactions everywhere else.
+   ========================================================================== */
+
+/* --- Neutralize the old always-on entrances; gate them to navigation --- */
+.reveal { animation: none; }
+.view-enter { animation: none; }
+
+@keyframes cp-view { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes cp-rise { from { opacity: 0; transform: translateY(16px) scale(.985); } to { opacity: 1; transform: none; } }
+
+.is-entering .view-enter { animation: cp-view .5s var(--ease) both; }
+.is-entering .reveal { animation: cp-rise .55s var(--ease) both; animation-delay: var(--d, 0ms); }
+
+/* Staggered card cascade on the view you just opened */
+.is-entering :where(.post-grid, .stat-grid, .goal-grid, .roadmap-grid, .project-grid, .calendar, .channel-list) > * {
+  animation: cp-rise .5s var(--ease) both;
+}
+.is-entering :where(.post-grid, .stat-grid, .goal-grid, .roadmap-grid, .project-grid, .calendar, .channel-list) > *:nth-child(1) { animation-delay: .03s; }
+.is-entering :where(.post-grid, .stat-grid, .goal-grid, .roadmap-grid, .project-grid, .calendar, .channel-list) > *:nth-child(2) { animation-delay: .09s; }
+.is-entering :where(.post-grid, .stat-grid, .goal-grid, .roadmap-grid, .project-grid, .calendar, .channel-list) > *:nth-child(3) { animation-delay: .15s; }
+.is-entering :where(.post-grid, .stat-grid, .goal-grid, .roadmap-grid, .project-grid, .calendar, .channel-list) > *:nth-child(4) { animation-delay: .21s; }
+.is-entering :where(.post-grid, .stat-grid, .goal-grid, .roadmap-grid, .project-grid, .calendar, .channel-list) > *:nth-child(5) { animation-delay: .27s; }
+.is-entering :where(.post-grid, .stat-grid, .goal-grid, .roadmap-grid, .project-grid, .calendar, .channel-list) > *:nth-child(6) { animation-delay: .33s; }
+.is-entering :where(.post-grid, .stat-grid, .goal-grid, .roadmap-grid, .project-grid, .calendar, .channel-list) > *:nth-child(7) { animation-delay: .39s; }
+.is-entering :where(.post-grid, .stat-grid, .goal-grid, .roadmap-grid, .project-grid, .calendar, .channel-list) > *:nth-child(n+8) { animation-delay: .45s; }
+
+/* --- Subtle developer-grade backdrop: faint dot grid that fades from the top --- */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-image: radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0);
+  background-size: 38px 38px;
+  opacity: .35;
+  -webkit-mask-image: radial-gradient(120% 90% at 50% -10%, #000 0%, transparent 70%);
+  mask-image: radial-gradient(120% 90% at 50% -10%, #000 0%, transparent 70%);
+}
+:root[data-theme="light"] body::after { opacity: .55; }
+
+/* --- Hero: slowly drifting glow for a living, premium surface --- */
+@keyframes cp-drift { from { transform: translate(0, 0) scale(1); } to { transform: translate(-26px, 22px) scale(1.12); } }
+.hero-card__glow { animation: cp-drift 9s ease-in-out infinite alternate; }
+.hero-card { transition: transform .4s var(--ease), box-shadow .4s var(--ease); }
+
+/* --- Brand mark: soft ambient glow --- */
+.brand__mark { position: relative; }
+.brand__mark::after {
+  content: ""; position: absolute; inset: -6px; border-radius: inherit; z-index: -1;
+  background: radial-gradient(circle, var(--accent), transparent 70%);
+  opacity: .35; filter: blur(10px);
+  transition: opacity .3s ease;
+}
+.brand:hover .brand__mark::after { opacity: .6; }
+
+/* --- Nav: glide + settle on the active pill --- */
+.nav__item { transition: background .2s var(--ease), color .2s var(--ease), transform .18s var(--ease); }
+.nav__item:hover { transform: translateX(3px); }
+.nav__item.is-active { transform: translateX(0); }
+.nav__indicator { transition: height .3s var(--ease-spring); }
+
+/* --- Primary button: light sweep on hover --- */
+.btn--primary { position: relative; overflow: hidden; }
+.btn--primary::after {
+  content: ""; position: absolute; top: 0; left: -140%; width: 55%; height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .35), transparent);
+  transform: skewX(-20deg); pointer-events: none;
+}
+.btn--primary:not(.is-busy):hover::after { animation: cp-sheen .85s var(--ease-out); }
+@keyframes cp-sheen { to { left: 150%; } }
+
+/* --- Cards: crisper lift + accent ring on hover --- */
+.post-card, .stat-card, .roadmap-card, .project-card, .goal-card { will-change: transform; }
+.post-card:hover { box-shadow: var(--shadow-lg), 0 0 0 1px var(--border); }
+.stat-card:hover { transform: translateY(-4px); }
+
+/* --- Platform accent bars: gentle animated shimmer on the multi-color ones --- */
+.post-card.platform-ig::before, .post-card.platform-gg::before { background-size: 220% 100%; animation: cp-bar 7s linear infinite; }
+@keyframes cp-bar { to { background-position: 220% 0; } }
+
+/* --- Chips & tags: tiny pop --- */
+.tag, .tech-tag { transition: transform .15s var(--ease), background .2s ease, color .2s ease; }
+.tag:hover, .tech-tag:hover { transform: translateY(-1px); }
+
+/* --- Toggles: springy thumb --- */
+.toggle__dot { transition: transform .28s var(--ease-spring), background .2s ease; }
+
+/* --- Calendar chips: lift --- */
+.cal-chip { transition: transform .16s var(--ease), filter .2s ease, box-shadow .2s ease; }
+.cal-chip:hover { box-shadow: var(--shadow-md); }
+
+/* --- Empty-state icon: soft breathing --- */
+@keyframes cp-breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+.empty-state__icon { animation: cp-breathe 3.4s var(--ease) infinite; }
+
+/* --- Smooth, deliberate theme switch (temporary global color transition) --- */
+html.theme-transition, html.theme-transition * {
+  transition: background-color .32s var(--ease), color .32s var(--ease),
+              border-color .32s var(--ease), fill .32s var(--ease) !important;
+}
 
 /* ----------  Content-engine responsive  ---------- */
 @media (max-width: 1080px) {

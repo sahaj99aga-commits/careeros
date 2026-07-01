@@ -342,10 +342,13 @@
   /* ==========================================================================
      Shell + render
      ========================================================================== */
+  let prevRoute = null; // entrance animations fire only when the route changes
   function render() {
     const s = Store.get();
     const view = VIEWS[ui.route] || viewDashboard;
     const theme = document.documentElement.getAttribute('data-theme');
+    const entering = prevRoute !== ui.route;
+    prevRoute = ui.route;
     app.innerHTML = `
       <div class="shell">
         <aside class="sidebar" data-open="${ui.sidebarOpen}">
@@ -376,7 +379,7 @@
               <button class="avatar" data-act="go" data-route="voice" aria-label="Brand voice">${initials(s.business.name)}</button>
             </div>
           </header>
-          <main>${view()}</main>
+          <main class="${entering ? 'is-entering' : ''}">${view()}</main>
         </div>
       </div>
       <div class="scrim ${ui.sidebarOpen ? 'is-visible' : ''}" data-act="close-sidebar"></div>`;
@@ -462,9 +465,14 @@
       case 'toggle-sidebar': ui.sidebarOpen = !ui.sidebarOpen; render(); break;
       case 'close-sidebar': ui.sidebarOpen = false; render(); break;
       case 'toggle-theme': {
-        const cur = document.documentElement.getAttribute('data-theme');
+        const root = document.documentElement;
+        const cur = root.getAttribute('data-theme');
         const next = cur === 'dark' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', next);
+        // Briefly enable a global color transition so the theme cross-fades.
+        root.classList.add('theme-transition');
+        clearTimeout(root._themeT);
+        root._themeT = setTimeout(() => root.classList.remove('theme-transition'), 380);
+        root.setAttribute('data-theme', next);
         try { localStorage.setItem('cornerpost.theme', next); } catch (_) {}
         render();
         break;
@@ -547,9 +555,13 @@
   Store.subscribe(render);
   render();
 
-  // Detect whether the backend has an API key configured, then re-render so
-  // the "AI on / Demo" badge reflects reality. Safe when opened via file://.
+  // Detect whether the backend has an API key configured, then re-render only
+  // if the badge changes — so the initial entrance cascade isn't cut short.
+  // Safe when opened via file:// (falls back to demo).
   if (window.Generator && window.Generator.refreshMode) {
-    window.Generator.refreshMode().then(render).catch(() => {});
+    const before = window.Generator.mode().enabled;
+    window.Generator.refreshMode()
+      .then(() => { if (window.Generator.mode().enabled !== before) render(); })
+      .catch(() => {});
   }
 })();
