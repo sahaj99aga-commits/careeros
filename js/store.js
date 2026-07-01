@@ -1,73 +1,246 @@
 /* ============================================================================
-Store - the application's data layer.
-============================================================================ */
+   Store — the application's data layer.
+   Models a local business's brand voice, channels, weekly content cadence,
+   the generated posts and their review lifecycle, plus an ideas queue.
+   ============================================================================ */
 (function () {
-const STORAGE_KEY = 'careeros.state.v1';
-const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-const now = () => new Date().toISOString();
+  const STORAGE_KEY = 'cornerpost.state.v1';
+  const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+  const now = () => new Date().toISOString();
 
-function seed() {
-return {
-profile: { name: 'Sahaj Agarwal', headline: 'Final-year CS - Aspiring Software Engineer', target: 'Software Engineer - Product Companies', graduationYear: 2026, streakDays: 6, lastActive: now() },
-roadmaps: [
-{ id: uid(), title: 'Full-Stack Web Developer', description: 'From fundamentals to deploying production-grade apps.', color: 'green', milestones: [ { id: uid(), title: 'HTML, CSS & responsive layout', done: true }, { id: uid(), title: 'JavaScript (ES6+) & the DOM', done: true }, { id: uid(), title: 'React + state management', done: true }, { id: uid(), title: 'Node.js & REST APIs', done: false }, { id: uid(), title: 'Databases (SQL + NoSQL)', done: false }, { id: uid(), title: 'Auth, testing & deployment', done: false } ] },
-{ id: uid(), title: 'DSA for Interviews', description: 'Pattern-based problem solving for placement rounds.', color: 'indigo', milestones: [ { id: uid(), title: 'Arrays & hashing', done: true }, { id: uid(), title: 'Two pointers & sliding window', done: true }, { id: uid(), title: 'Stacks, queues & linked lists', done: false }, { id: uid(), title: 'Trees & graphs (BFS/DFS)', done: false }, { id: uid(), title: 'Dynamic programming', done: false } ] },
-],
-skills: [ { id: uid(), name: 'JavaScript', category: 'Programming', level: 75 }, { id: uid(), name: 'React', category: 'Frontend', level: 68 }, { id: uid(), name: 'Python', category: 'Programming', level: 60 }, { id: uid(), name: 'SQL', category: 'Data', level: 45 }, { id: uid(), name: 'Node.js', category: 'Backend', level: 40 }, { id: uid(), name: 'System Design', category: 'Architecture', level: 25 } ],
-projects: [ { id: uid(), title: 'StudySync - Collaborative Notes', description: 'Real-time shared notes app with live cursors and markdown.', status: 'completed', tech: ['React', 'Node.js', 'Socket.io'], link: 'https://github.com' }, { id: uid(), title: 'Expense Insights Dashboard', description: 'Personal finance tracker with category analytics.', status: 'in-progress', tech: ['Next.js', 'PostgreSQL', 'Recharts'], link: '' }, { id: uid(), title: 'AI Resume Reviewer', description: 'Scores resumes against a job description using NLP.', status: 'planning', tech: ['Python', 'FastAPI'], link: '' } ],
-applications: [ { id: uid(), company: 'Atlassian', role: 'SDE Intern', stage: 'interview', deadline: '2026-07-02', notes: 'DSA round scheduled.' }, { id: uid(), company: 'Razorpay', role: 'Backend Intern', stage: 'applied', deadline: '2026-06-28', notes: '' }, { id: uid(), company: 'Google', role: 'STEP Intern', stage: 'wishlist', deadline: '2026-08-15', notes: 'Referral from senior.' }, { id: uid(), company: 'Zomato', role: 'Frontend SDE', stage: 'offer', deadline: '', notes: 'Verbal offer - negotiating.' } ],
-prep: [ { id: uid(), label: 'Polish resume to 1 page', done: true }, { id: uid(), label: 'Solve 150 DSA problems', done: false }, { id: uid(), label: 'Build 3 portfolio projects', done: false }, { id: uid(), label: 'Mock interview x5', done: false }, { id: uid(), label: 'Optimize LinkedIn profile', done: true } ],
-goals: [ { id: uid(), title: 'Crack a top-tier SDE internship', due: '2026-08-30', progress: 55 }, { id: uid(), title: 'Reach 200-day DSA streak', due: '2026-12-31', progress: 30 }, { id: uid(), title: 'Ship a side project with real users', due: '2026-09-15', progress: 40 } ],
-activity: [ { id: uid(), text: 'Completed milestone "React + state management"', at: now() }, { id: uid(), text: 'Moved Atlassian to Interview stage', at: now() } ],
-};
-}
+  // Monday of the week containing `d` (local), as an ISO date string.
+  function weekStart(d = new Date()) {
+    const x = new Date(d);
+    const day = (x.getDay() + 6) % 7; // 0 = Monday
+    x.setDate(x.getDate() - day);
+    x.setHours(0, 0, 0, 0);
+    return x.toISOString().slice(0, 10);
+  }
+  function addDays(iso, n) {
+    const x = new Date(iso + 'T00:00:00');
+    x.setDate(x.getDate() + n);
+    return x.toISOString().slice(0, 10);
+  }
 
-let state;
-try { const raw = localStorage.getItem(STORAGE_KEY); state = raw ? JSON.parse(raw) : seed(); } catch (e) { state = seed(); }
+  function seed() {
+    const business = {
+      name: 'Ace Drain & Plumbing',
+      type: 'plumber',
+      city: 'Riverside',
+      tagline: 'Fast, honest plumbing your neighbors trust.',
+      tone: 'friendly',
+      services: ['drain cleaning', 'leak repair', 'water heater installs', 'emergency callouts'],
+      offer: '$25 off any drain cleaning this week',
+      phone: '(555) 018-4420',
+      website: 'acedrain.com',
+      targetCustomer: 'Homeowners in Riverside who want a plumber they can trust',
+    };
+    const channels = [
+      { id: uid(), platform: 'instagram', handle: '@acedrain', enabled: true },
+      { id: uid(), platform: 'facebook', handle: 'Ace Drain & Plumbing', enabled: true },
+      { id: uid(), platform: 'google', handle: 'Ace Drain & Plumbing', enabled: true },
+    ];
+    const cadence = { postsPerWeek: 5, sendDay: 'Monday', autopilot: true };
+    const thisWeek = weekStart();
+    const lastWeek = addDays(thisWeek, -7);
 
-const subscribers = new Set();
-function persist() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {} }
-function emit() { persist(); subscribers.forEach((fn) => fn(state)); }
-function logActivity(text) { state.activity.unshift({ id: uid(), text, at: now() }); state.activity = state.activity.slice(0, 12); }
+    // A couple of pre-generated posts so the app has life on first load.
+    const g = window.Generator;
+    const activePlatforms = channels.filter((c) => c.enabled).map((c) => c.platform);
+    let posts = [];
+    if (g) {
+      const batch = g.generateWeek(business, { platforms: activePlatforms, count: 5 });
+      posts = batch.map((p, i) => ({
+        id: uid(),
+        weekOf: thisWeek,
+        scheduledFor: addDays(thisWeek, i),
+        status: i === 0 ? 'approved' : (i === 1 ? 'scheduled' : 'draft'),
+        createdAt: now(),
+        edited: false,
+        ...p,
+      }));
+      // one published post from last week for library/streak feel
+      const past = g.generateOne(business, { type: 'testimonial', platform: 'instagram' });
+      posts.push({ id: uid(), weekOf: lastWeek, scheduledFor: addDays(lastWeek, 3), status: 'published', createdAt: now(), edited: false, ...past });
+    }
 
-const selectors = {
-roadmapProgress(r) { if (!r.milestones.length) return 0; return Math.round((r.milestones.filter((m) => m.done).length / r.milestones.length) * 100); },
-overallProgress() { const all = state.roadmaps.flatMap((r) => r.milestones); if (!all.length) return 0; return Math.round((all.filter((m) => m.done).length / all.length) * 100); },
-avgSkill() { if (!state.skills.length) return 0; return Math.round(state.skills.reduce((s, x) => s + x.level, 0) / state.skills.length); },
-prepProgress() { if (!state.prep.length) return 0; return Math.round((state.prep.filter((p) => p.done).length / state.prep.length) * 100); },
-projectsCompleted() { return state.projects.filter((p) => p.status === 'completed').length; },
-activeApplications() { return state.applications.filter((a) => a.stage !== 'wishlist').length; },
-upcomingDeadlines() { return state.applications.filter((a) => a.deadline).map((a) => ({ ...a, ts: new Date(a.deadline).getTime() })).sort((a, b) => a.ts - b.ts).slice(0, 4); },
-nextActions() { const actions = []; state.roadmaps.forEach((r) => { const next = r.milestones.find((m) => !m.done); if (next) actions.push({ kind: 'roadmap', label: next.title, meta: r.title, id: next.id, parent: r.id }); }); const prep = state.prep.find((p) => !p.done); if (prep) actions.push({ kind: 'prep', label: prep.label, meta: 'Placement prep', id: prep.id }); return actions.slice(0, 4); },
-};
+    return {
+      business,
+      channels,
+      cadence,
+      posts,
+      ideas: [
+        { id: uid(), text: 'Highlight the new tankless water heater line', used: false },
+        { id: uid(), text: 'Ask customers about their worst DIY plumbing fail', used: false },
+        { id: uid(), text: 'Before/after of the Maple St. repipe job', used: false },
+      ],
+      streakWeeks: 4,
+      lastGenerated: null,
+      onboarded: true,
+      activity: [
+        { id: uid(), text: 'Generated this week\'s content batch', at: now() },
+        { id: uid(), text: 'Approved a Google Business post', at: now() },
+      ],
+    };
+  }
 
-const Store = {
-get: () => state, sel: selectors,
-subscribe(fn) { subscribers.add(fn); return () => subscribers.delete(fn); },
-reset() { state = seed(); emit(); },
-updateProfile(patch) { Object.assign(state.profile, patch); emit(); },
-addRoadmap({ title, description, color }) { state.roadmaps.unshift({ id: uid(), title, description, color: color || 'green', milestones: [] }); logActivity('Created roadmap'); emit(); },
-deleteRoadmap(id) { state.roadmaps = state.roadmaps.filter((r) => r.id !== id); emit(); },
-addMilestone(roadmapId, title) { const r = state.roadmaps.find((x) => x.id === roadmapId); if (r) { r.milestones.push({ id: uid(), title, done: false }); emit(); } },
-toggleMilestone(roadmapId, milestoneId) { const r = state.roadmaps.find((x) => x.id === roadmapId); const m = r && r.milestones.find((x) => x.id === milestoneId); if (m) { m.done = !m.done; if (m.done) { logActivity('Completed milestone: ' + m.title); if (selectors.roadmapProgress(r) === 100) logActivity('Finished roadmap!'); } emit(); } },
-deleteMilestone(roadmapId, milestoneId) { const r = state.roadmaps.find((x) => x.id === roadmapId); if (r) { r.milestones = r.milestones.filter((m) => m.id !== milestoneId); emit(); } },
-addSkill({ name, category, level }) { state.skills.push({ id: uid(), name, category: category || 'General', level: Number(level) || 0 }); logActivity('Added skill: ' + name); emit(); },
-updateSkill(id, patch) { const s = state.skills.find((x) => x.id === id); if (s) { Object.assign(s, patch); emit(); } },
-deleteSkill(id) { state.skills = state.skills.filter((s) => s.id !== id); emit(); },
-addProject(p) { state.projects.unshift({ id: uid(), tech: [], link: '', status: 'planning', ...p }); logActivity('Added project: ' + p.title); emit(); },
-updateProject(id, patch) { const p = state.projects.find((x) => x.id === id); if (p) { Object.assign(p, patch); emit(); } },
-deleteProject(id) { state.projects = state.projects.filter((p) => p.id !== id); emit(); },
-addApplication(a) { state.applications.unshift({ id: uid(), stage: 'wishlist', notes: '', deadline: '', ...a }); logActivity('Tracking: ' + a.role + ' @ ' + a.company); emit(); },
-moveApplication(id, stage) { const a = state.applications.find((x) => x.id === id); if (a && a.stage !== stage) { a.stage = stage; logActivity('Moved ' + a.company + ' to ' + stage); emit(); } },
-updateApplication(id, patch) { const a = state.applications.find((x) => x.id === id); if (a) { Object.assign(a, patch); emit(); } },
-deleteApplication(id) { state.applications = state.applications.filter((a) => a.id !== id); emit(); },
-addPrep(label) { state.prep.push({ id: uid(), label, done: false }); emit(); },
-togglePrep(id) { const p = state.prep.find((x) => x.id === id); if (p) { p.done = !p.done; emit(); } },
-deletePrep(id) { state.prep = state.prep.filter((p) => p.id !== id); emit(); },
-addGoal(g) { state.goals.unshift({ id: uid(), progress: 0, ...g }); logActivity('Set goal: ' + g.title); emit(); },
-updateGoal(id, patch) { const g = state.goals.find((x) => x.id === id); if (g) { Object.assign(g, patch); emit(); } },
-deleteGoal(id) { state.goals = state.goals.filter((g) => g.id !== id); emit(); },
-};
+  let state;
+  try { const raw = localStorage.getItem(STORAGE_KEY); state = raw ? JSON.parse(raw) : seed(); } catch (e) { state = seed(); }
 
-window.Store = Store;
+  const subscribers = new Set();
+  function persist() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {} }
+  function emit() { persist(); subscribers.forEach((fn) => fn(state)); }
+  function logActivity(text) { state.activity.unshift({ id: uid(), text, at: now() }); state.activity = state.activity.slice(0, 14); }
+
+  const STATUS_ORDER = ['draft', 'approved', 'scheduled', 'published'];
+
+  const selectors = {
+    thisWeek: () => weekStart(),
+    weekStart, addDays,
+    activePlatforms() { return state.channels.filter((c) => c.enabled).map((c) => c.platform); },
+    postsForWeek(week) { return state.posts.filter((p) => p.weekOf === week); },
+    currentWeekPosts() { return selectors.postsForWeek(weekStart()).sort((a, b) => (a.scheduledFor || '').localeCompare(b.scheduledFor || '')); },
+    weeks() {
+      const set = [...new Set(state.posts.map((p) => p.weekOf))];
+      return set.sort((a, b) => b.localeCompare(a));
+    },
+    countByStatus(status, week) {
+      return state.posts.filter((p) => p.status === status && (!week || p.weekOf === week)).length;
+    },
+    readyThisWeek() {
+      const wk = weekStart();
+      return state.posts.filter((p) => p.weekOf === wk && (p.status === 'approved' || p.status === 'scheduled')).length;
+    },
+    pendingThisWeek() {
+      const wk = weekStart();
+      return state.posts.filter((p) => p.weekOf === wk && p.status === 'draft').length;
+    },
+    totalPublished() { return state.posts.filter((p) => p.status === 'published').length; },
+    weekProgress() {
+      const wk = weekStart();
+      const posts = state.posts.filter((p) => p.weekOf === wk);
+      if (!posts.length) return 0;
+      const done = posts.filter((p) => p.status !== 'draft').length;
+      return Math.round((done / posts.length) * 100);
+    },
+    upcoming() {
+      const today = new Date().toISOString().slice(0, 10);
+      return state.posts
+        .filter((p) => p.scheduledFor && p.scheduledFor >= today && p.status !== 'published')
+        .sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor))
+        .slice(0, 5);
+    },
+    statusOrder: STATUS_ORDER,
+  };
+
+  function newPostFrom(draft, week, dayIndex) {
+    return {
+      id: uid(),
+      weekOf: week || weekStart(),
+      scheduledFor: selectors.addDays(week || weekStart(), dayIndex || 0),
+      status: 'draft',
+      createdAt: now(),
+      edited: false,
+      ...draft,
+    };
+  }
+
+  const Store = {
+    get: () => state, sel: selectors,
+    subscribe(fn) { subscribers.add(fn); return () => subscribers.delete(fn); },
+    reset() { state = seed(); emit(); },
+
+    updateBusiness(patch) {
+      Object.assign(state.business, patch);
+      if (patch.services && !Array.isArray(patch.services)) {
+        state.business.services = String(patch.services).split(',').map((s) => s.trim()).filter(Boolean);
+      }
+      logActivity('Updated brand voice');
+      emit();
+    },
+
+    toggleChannel(id) {
+      const c = state.channels.find((x) => x.id === id);
+      if (c) { c.enabled = !c.enabled; emit(); }
+    },
+    updateChannel(id, patch) {
+      const c = state.channels.find((x) => x.id === id);
+      if (c) { Object.assign(c, patch); emit(); }
+    },
+
+    updateCadence(patch) { Object.assign(state.cadence, patch); emit(); },
+
+    // Generate (or regenerate) the full batch for the current week.
+    // Async: uses AI when a key is configured, templates otherwise.
+    async generateWeek({ replace = false } = {}) {
+      const g = window.Generator;
+      if (!g) return;
+      const wk = weekStart();
+      const platforms = selectors.activePlatforms();
+      const count = state.cadence.postsPerWeek || 5;
+      const batch = await g.composeWeek(state.business, { platforms, count });
+      if (replace) state.posts = state.posts.filter((p) => p.weekOf !== wk);
+      const created = batch.map((d, i) => newPostFrom(d, wk, i));
+      state.posts.unshift(...created);
+      state.lastGenerated = now();
+      logActivity(`Generated ${created.length} posts for this week`);
+      emit();
+      return created;
+    },
+
+    async addPost({ type, platform } = {}) {
+      const g = window.Generator;
+      if (!g) return;
+      const draft = await g.composeOne(state.business, { type, platform });
+      const wk = weekStart();
+      const existing = selectors.postsForWeek(wk).length;
+      const post = newPostFrom(draft, wk, existing % 7);
+      state.posts.unshift(post);
+      logActivity('Added a new post');
+      emit();
+      return post;
+    },
+
+    // Regenerate the copy of a single post, keeping its slot/type/platform.
+    async regeneratePost(id, opts = {}) {
+      const g = window.Generator;
+      const p = state.posts.find((x) => x.id === id);
+      if (!p || !g) return;
+      const draft = await g.composeOne(state.business, { type: opts.type || p.type, platform: opts.platform || p.platform });
+      Object.assign(p, draft, { edited: false, status: p.status === 'published' ? 'draft' : p.status });
+      logActivity('Regenerated a post');
+      emit();
+    },
+
+    updatePost(id, patch) {
+      const p = state.posts.find((x) => x.id === id);
+      if (p) { Object.assign(p, patch, { edited: true }); emit(); }
+    },
+
+    setStatus(id, status) {
+      const p = state.posts.find((x) => x.id === id);
+      if (p && p.status !== status) {
+        p.status = status;
+        const labels = { approved: 'Approved', scheduled: 'Scheduled', published: 'Marked published', draft: 'Moved to draft' };
+        logActivity(`${labels[status] || 'Updated'} a ${p.platformLabel} post`);
+        emit();
+      }
+    },
+
+    approveAll() {
+      const wk = weekStart();
+      let n = 0;
+      state.posts.forEach((p) => { if (p.weekOf === wk && p.status === 'draft') { p.status = 'approved'; n++; } });
+      if (n) { logActivity(`Approved ${n} posts in one click`); emit(); }
+      return n;
+    },
+
+    deletePost(id) { state.posts = state.posts.filter((p) => p.id !== id); emit(); },
+
+    addIdea(text) { state.ideas.unshift({ id: uid(), text, used: false }); emit(); },
+    toggleIdea(id) { const i = state.ideas.find((x) => x.id === id); if (i) { i.used = !i.used; emit(); } },
+    deleteIdea(id) { state.ideas = state.ideas.filter((i) => i.id !== id); emit(); },
+  };
+
+  window.Store = Store;
 })();
