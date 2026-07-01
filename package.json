@@ -1,0 +1,13 @@
+{
+  "name": "cornerpost",
+  "version": "1.0.0",
+  "description": "Weekly content engine for local businesses — AI-written social + Google Business posts in your voice.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

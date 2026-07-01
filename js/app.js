@@ -36,6 +36,8 @@
     libFilter: 'all',       // status filter on Library
     libPlatform: 'all',
     voicePreview: null,
+    generating: false,      // week batch in flight
+    busy: new Set(),        // ids of posts being rewritten
   };
 
   /* ----------  Small helpers  ---------- */
@@ -44,6 +46,13 @@
   const timeAgo = (iso) => { const s = Math.floor((Date.now() - new Date(iso)) / 1000); if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + 'm ago'; if (s < 86400) return Math.floor(s / 3600) + 'h ago'; return Math.floor(s / 86400) + 'd ago'; };
   const initials = (name) => (name || 'CP').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
   const fullText = (p) => (p.body + (p.hashtags && p.hashtags.length ? '\n\n' + p.hashtags.join(' ') : '')).trim();
+
+  function aiBadge() {
+    const m = window.Generator && window.Generator.mode ? window.Generator.mode() : { enabled: false };
+    return m.enabled
+      ? `<span class="chip chip--green ai-badge" title="Posts are written by Claude${m.model ? ' (' + esc(m.model) + ')' : ''}">${icon('sparkle')}AI on</span>`
+      : `<span class="chip chip--muted ai-badge" title="Running the built-in demo engine. Add an API key to enable real AI.">${icon('wand')}Demo</span>`;
+  }
 
   function nextStatus(status) { return { draft: 'approved', approved: 'scheduled', scheduled: 'published' }[status]; }
   function nextStatusLabel(status) { return { draft: 'Approve', approved: 'Schedule', scheduled: 'Mark posted' }[status]; }
@@ -73,7 +82,7 @@
         ${next ? `<button class="btn btn--primary btn--sm" data-act="advance" data-id="${p.id}">${icon(p.status === 'scheduled' ? 'check' : 'thumbsUp')}${nextStatusLabel(p.status)}</button>` : `<button class="btn btn--ghost btn--sm" data-act="advance-reset" data-id="${p.id}">${icon('refresh')}Reuse</button>`}
         <button class="btn btn--ghost btn--sm" data-act="copy" data-id="${p.id}">${icon('copy')}Copy</button>
         <button class="btn btn--ghost btn--sm" data-act="edit" data-id="${p.id}">${icon('pen')}Edit</button>
-        <button class="btn btn--ghost btn--sm" data-act="regen" data-id="${p.id}" title="Rewrite in your voice">${icon('wand')}Rewrite</button>
+        <button class="btn btn--ghost btn--sm ${ui.busy.has(p.id) ? 'is-busy' : ''}" data-act="regen" data-id="${p.id}" title="Rewrite in your voice">${icon(ui.busy.has(p.id) ? 'refresh' : 'wand')}${ui.busy.has(p.id) ? 'Writing…' : 'Rewrite'}</button>
         <button class="icon-btn icon-btn--sm" data-act="delete" data-id="${p.id}" aria-label="Delete post">${icon('trash')}</button>
       </div>
     </article>`;
@@ -361,7 +370,8 @@
               <span class="platform-badge platform-badge--gg">${icon('store')}${esc(s.business.name)}</span>
             </div>
             <div class="topbar__actions">
-              <button class="btn btn--primary btn--sm topbar__generate" data-act="generate">${icon('wand')}Generate week</button>
+              ${aiBadge()}
+              <button class="btn btn--primary btn--sm topbar__generate ${ui.generating ? 'is-busy' : ''}" data-act="generate">${icon(ui.generating ? 'refresh' : 'wand')}${ui.generating ? 'Writing…' : 'Generate week'}</button>
               <button class="icon-btn" data-act="toggle-theme" aria-label="Toggle theme">${icon(theme === 'dark' ? 'sun' : 'moon')}</button>
               <button class="avatar" data-act="go" data-route="voice" aria-label="Brand voice">${initials(s.business.name)}</button>
             </div>
@@ -411,10 +421,11 @@
       `,
       actions: [
         { label: 'Cancel' },
-        { label: 'Generate post', variant: 'primary', onClick: ({ dialog }) => {
+        { label: 'Generate post', variant: 'primary', onClick: async ({ dialog }) => {
           const platform = dialog.querySelector('#platform').value;
           const type = dialog.querySelector('#type').value;
-          Store.addPost({ platform, type });
+          if (window.Generator.mode().enabled) toast('Writing your post…', 'info');
+          await Store.addPost({ platform, type });
           toast('New post added to this week');
         } },
       ],
@@ -459,10 +470,18 @@
         break;
       }
       case 'generate': {
-        const had = Store.sel.currentWeekPosts().length > 0;
-        Store.generateWeek({ replace: true });
-        if (ui.route !== 'week') navigate('week'); else render();
-        toast(had ? 'Fresh batch generated ✨' : 'Your week of posts is ready ✨');
+        if (ui.generating) break;
+        (async () => {
+          const had = Store.sel.currentWeekPosts().length > 0;
+          const aiOn = window.Generator.mode().enabled;
+          ui.generating = true;
+          if (ui.route !== 'week') navigate('week'); else render();
+          if (aiOn) toast('Writing your week with AI…', 'info');
+          try { await Store.generateWeek({ replace: true }); }
+          catch (e) { toast('Something went wrong generating', 'info'); }
+          finally { ui.generating = false; render(); }
+          toast(had ? 'Fresh batch generated ✨' : 'Your week of posts is ready ✨');
+        })();
         break;
       }
       case 'approve-all': { const n = Store.approveAll(); toast(n ? `Approved ${n} posts` : 'Nothing to approve'); break; }
@@ -471,7 +490,16 @@
       case 'advance-reset': Store.setStatus(id, 'draft'); toast('Back in drafts — tweak and reuse', 'info'); break;
       case 'copy': copyPost(id); break;
       case 'edit': editModal(id); break;
-      case 'regen': Store.regeneratePost(id); toast('Rewritten in your voice ✨', 'info'); break;
+      case 'regen': {
+        if (ui.busy.has(id)) break;
+        (async () => {
+          ui.busy.add(id); render();
+          try { await Store.regeneratePost(id); }
+          finally { ui.busy.delete(id); render(); }
+          toast('Rewritten in your voice ✨', 'info');
+        })();
+        break;
+      }
       case 'delete': { const p = Store.get().posts.find((x) => x.id === id); confirmDialog({ title: 'Delete post?', message: `This ${p ? PLATFORM_META[p.platform].label : ''} post will be removed.`, onConfirm: () => { Store.deletePost(id); toast('Post deleted'); } }); break; }
       case 'filter': { ui[el.dataset.filter] = el.dataset.value; render(); break; }
       case 'toggle-idea': Store.toggleIdea(id); break;
@@ -518,4 +546,10 @@
 
   Store.subscribe(render);
   render();
+
+  // Detect whether the backend has an API key configured, then re-render so
+  // the "AI on / Demo" badge reflects reality. Safe when opened via file://.
+  if (window.Generator && window.Generator.refreshMode) {
+    window.Generator.refreshMode().then(render).catch(() => {});
+  }
 })();

@@ -171,14 +171,15 @@
     updateCadence(patch) { Object.assign(state.cadence, patch); emit(); },
 
     // Generate (or regenerate) the full batch for the current week.
-    generateWeek({ replace = false } = {}) {
+    // Async: uses AI when a key is configured, templates otherwise.
+    async generateWeek({ replace = false } = {}) {
       const g = window.Generator;
       if (!g) return;
       const wk = weekStart();
-      if (replace) state.posts = state.posts.filter((p) => p.weekOf !== wk);
       const platforms = selectors.activePlatforms();
       const count = state.cadence.postsPerWeek || 5;
-      const batch = g.generateWeek(state.business, { platforms, count });
+      const batch = await g.composeWeek(state.business, { platforms, count });
+      if (replace) state.posts = state.posts.filter((p) => p.weekOf !== wk);
       const created = batch.map((d, i) => newPostFrom(d, wk, i));
       state.posts.unshift(...created);
       state.lastGenerated = now();
@@ -187,10 +188,10 @@
       return created;
     },
 
-    addPost({ type, platform } = {}) {
+    async addPost({ type, platform } = {}) {
       const g = window.Generator;
       if (!g) return;
-      const draft = g.generateOne(state.business, { type, platform });
+      const draft = await g.composeOne(state.business, { type, platform });
       const wk = weekStart();
       const existing = selectors.postsForWeek(wk).length;
       const post = newPostFrom(draft, wk, existing % 7);
@@ -201,11 +202,11 @@
     },
 
     // Regenerate the copy of a single post, keeping its slot/type/platform.
-    regeneratePost(id, opts = {}) {
+    async regeneratePost(id, opts = {}) {
       const g = window.Generator;
       const p = state.posts.find((x) => x.id === id);
       if (!p || !g) return;
-      const draft = g.generateOne(state.business, { type: opts.type || p.type, platform: opts.platform || p.platform });
+      const draft = await g.composeOne(state.business, { type: opts.type || p.type, platform: opts.platform || p.platform });
       Object.assign(p, draft, { edited: false, status: p.status === 'published' ? 'draft' : p.status });
       logActivity('Regenerated a post');
       emit();

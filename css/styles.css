@@ -601,6 +601,13 @@ input[type="date"] { color-scheme: dark; }
 .cal-chip--gg { background: var(--gg-soft); color: var(--gg); }
 .cal-day__empty { color: var(--fg-faint); font-size: 0.8rem; text-align: center; padding: 6px 0; }
 
+/* ----------  AI badge + busy spinner  ---------- */
+.ai-badge { display: inline-flex; align-items: center; gap: 5px; }
+.ai-badge .icon { width: 14px; height: 14px; }
+@keyframes cp-spin { to { transform: rotate(360deg); } }
+.btn.is-busy { opacity: .75; pointer-events: none; }
+.btn.is-busy .icon { animation: cp-spin 0.9s linear infinite; }
+
 /* ----------  Content-engine responsive  ---------- */
 @media (max-width: 1080px) {
   .voice-grid { grid-template-columns: 1fr; }

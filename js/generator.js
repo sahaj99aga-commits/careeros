@@ -424,6 +424,90 @@
     return posts;
   }
 
+  /* ==========================================================================
+     AI layer — talks to the backend proxy (/api/*) when a key is configured,
+     and transparently falls back to the local template engine above whenever
+     the API is unavailable, unconfigured, or errors. The app never breaks.
+     ========================================================================== */
+  const aiState = { enabled: false, model: null };
+
+  async function refreshMode() {
+    try {
+      const r = await fetch('/api/status');
+      if (!r.ok) throw new Error('status');
+      const j = await r.json();
+      aiState.enabled = !!j.configured;
+      aiState.model = j.model || null;
+    } catch (e) {
+      aiState.enabled = false;
+      aiState.model = null;
+    }
+    return aiState;
+  }
+
+  async function apiGenerate(payload) {
+    const r = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error('generate failed');
+    return r.json();
+  }
+
+  // Turn the AI's raw {body, hashtags, cta, imageIdea} into the full post shape,
+  // applying the same platform rules the template engine uses.
+  function finalizeDraft(biz, typeKey, platformKey, ai) {
+    const P = PLATFORMS[platformKey] || PLATFORMS.instagram;
+    const typeLabel = (CONTENT_TYPES.find((c) => c.key === typeKey) || {}).label || cap(typeKey);
+    let hashtags = Array.isArray(ai.hashtags) ? ai.hashtags.filter(Boolean).map((t) => (String(t).startsWith('#') ? t : '#' + t)) : [];
+    hashtags = P.maxTags > 0 ? hashtags.slice(0, P.maxTags) : [];
+    const body = String(ai.body || '').trim();
+    return {
+      platform: platformKey, platformLabel: P.label,
+      type: typeKey, typeLabel,
+      body, hashtags,
+      cta: platformKey === 'google' ? (String(ai.cta || '').trim() || 'Learn more') : '',
+      imageIdea: String(ai.imageIdea || '').trim() || `A clean, real photo of your team or your work — ${biz.city || 'local'} vibes`,
+      charCount: body.length,
+    };
+  }
+
+  const WEEK_MIX = ['tip', 'seasonal', 'promo', 'testimonial', 'faq', 'story', 'community', 'review'];
+  function planWeek(platforms, count) {
+    const plan = [];
+    for (let i = 0; i < count; i++) plan.push({ type: WEEK_MIX[i % WEEK_MIX.length], platform: platforms[i % platforms.length] });
+    return plan;
+  }
+
+  // Async: AI when available, template otherwise.
+  async function composeOne(biz, opts = {}) {
+    const platform = opts.platform || pick(Object.keys(PLATFORMS));
+    const type = opts.type || pick(CONTENT_TYPES).key;
+    if (aiState.enabled) {
+      try {
+        const j = await apiGenerate({ business: biz, type, platform });
+        if (j && j.configured !== false && j.post) return finalizeDraft(biz, type, platform, j.post);
+      } catch (e) { /* fall back to template */ }
+    }
+    return assemble(biz, type, platform);
+  }
+
+  async function composeWeek(biz, opts = {}) {
+    const platforms = (opts.platforms && opts.platforms.length ? opts.platforms : Object.keys(PLATFORMS));
+    const count = opts.count || 5;
+    const plan = planWeek(platforms, count);
+    if (aiState.enabled) {
+      try {
+        const j = await apiGenerate({ business: biz, plan });
+        if (j && j.configured !== false && Array.isArray(j.posts) && j.posts.length === plan.length) {
+          return plan.map((slot, i) => finalizeDraft(biz, slot.type, slot.platform, j.posts[i]));
+        }
+      } catch (e) { /* fall back to template */ }
+    }
+    return plan.map((slot) => assemble(biz, slot.type, slot.platform));
+  }
+
   window.Generator = {
     TYPES, TONES, PLATFORMS, CONTENT_TYPES,
     typeOptions: () => Object.keys(TYPES).map((k) => ({ value: k, label: TYPES[k].label })),
@@ -431,6 +515,9 @@
     platformOptions: () => Object.keys(PLATFORMS).map((k) => ({ value: k, label: PLATFORMS[k].label })),
     contentTypeOptions: () => CONTENT_TYPES.map((c) => ({ value: c.key, label: c.label })),
     servicesFor: (type) => (TYPES[type] || TYPES.other).services,
+    // Sync template engine (used for seed data + offline fallback)
     generateOne, generateWeek, season,
+    // Async AI-or-template layer (used by the app at runtime)
+    composeOne, composeWeek, refreshMode, mode: () => aiState,
   };
 })();
